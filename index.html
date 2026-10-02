@@ -449,6 +449,14 @@ body.sin-scroll{overflow:hidden}
   .sh-opts{grid-template-columns:repeat(2,1fr)}
   .foot-in{grid-template-columns:1fr 1fr}
 }
+
+/* Buscan rival */
+.ri-vs{flex:0 0 58px;height:58px;border-radius:12px;background:var(--ink);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.ri-vs b{font:800 22px var(--display);color:var(--bib)}
+.ri-vs span{font:800 12px var(--display);letter-spacing:.12em;opacity:.8}
+.ri-nota{font-size:13.5px;color:var(--fg);font-style:italic;margin-top:2px}
+.tg-ok{border-color:var(--wa);color:var(--wa)}
+@media (max-width:640px){ .row-item:has(.ri-vs) .ri-main{flex-basis:calc(100% - 80px)} }
 </style></head><body>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -477,6 +485,7 @@ body.sin-scroll{overflow:hidden}
     <div class="navlinks pub">
       <button type="button" data-go="ofertas">Turnos</button>
       <button type="button" data-go="falta">Falta uno</button>
+      <button type="button" data-go="rival">Rivales</button>
       <button type="button" data-go="canchas">Canchas</button>
     </div>
     <a class="owner-cta" href="#duenos">Soy dueño de cancha</a>
@@ -500,6 +509,7 @@ body.sin-scroll{overflow:hidden}
       <div class="board-row"><b id="b-libres">0</b><span>turnos libres</span></div>
       <div class="board-row"><b id="b-ofertas">0</b><span>en oferta</span></div>
       <div class="board-row"><b id="b-falta">0</b><span>partidos buscan jugadores</span></div>
+      <div class="board-row"><b id="b-rival">0</b><span>equipos buscan rival</span></div>
     </div>
   </div>
 </header>
@@ -552,6 +562,7 @@ body.sin-scroll{overflow:hidden}
     <nav class="tabs" role="tablist">
       <button class="tab" role="tab" id="t-ofertas" aria-selected="true" data-tab="ofertas">Turnos libres<span class="n" id="n-ofertas"></span></button>
       <button class="tab" role="tab" id="t-falta" aria-selected="false" data-tab="falta">Falta uno<span class="n" id="n-falta"></span></button>
+      <button class="tab" role="tab" id="t-rival" aria-selected="false" data-tab="rival">Buscan rival<span class="n" id="n-rival"></span></button>
       <button class="tab" role="tab" id="t-canchas" aria-selected="false" data-tab="canchas">Canchas<span class="n" id="n-canchas"></span></button>
     </nav>
 
@@ -650,6 +661,7 @@ body.sin-scroll{overflow:hidden}
       <b>Jugadores</b>
       <button type="button" data-go="ofertas">Turnos libres</button>
       <button type="button" data-go="falta">Falta uno</button>
+      <button type="button" data-go="rival">Buscan rival</button>
       <button type="button" data-go="canchas">Canchas</button>
     </div>
     <div class="foot-col">
@@ -682,7 +694,12 @@ const SLOT_ENTRY = {complejo:"", tipo:"", fecha:"", hora:"", estado:"", precio:"
 // Pestaña "publico" de esa hoja (solo filas con clave válida, sin la columna clave), publicada como CSV
 const SLOT_CSV = "";
 // ===================================================
+// "Buscan rival": tercer Google Form (equipo, tipo, nivel, cuando, fecha, horario, cancha, zona, nombre, whatsapp, nota)
+const RIVAL_FORM_ID = "";
+const RIVAL_ENTRY = {equipo:"", tipo:"", nivel:"", cuando:"", fecha:"", horario:"", cancha:"", zona:"", nombre:"", whatsapp:"", nota:""};
+const RIVAL_CSV = "";
 const LIVE = !!(FORM_ID && SHEET_CSV);
+const RIVAL_LIVE = !!(RIVAL_FORM_ID && RIVAL_CSV);
 const SLOT_LIVE = !!(SLOT_FORM_ID && SLOT_CSV);
 
 const canchas = [
@@ -765,7 +782,7 @@ function vigentes(){
 }
 function diaTxt(fecha){
   if(fecha===hoyISO(0)) return "Hoy"; if(fecha===hoyISO(1)) return "Mañana";
-  const d=new Date(fecha+"T12:00:00"); return d.toLocaleDateString("es-AR",{weekday:"long",day:"numeric",month:"numeric"});
+  const d=new Date(fecha+"T12:00:00"); return d.toLocaleDateString("es-AR",{weekday:"long"}) + " " + d.getDate() + "/" + (d.getMonth()+1);
 }
 const esc = s => String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const soloNum = s => String(s).replace(/\D/g,"");
@@ -811,6 +828,76 @@ function formHTML(){
     <p class="note">Tu nombre y tu WhatsApp quedan visibles para que te escriban. La publicación se borra sola cuando pasa el horario.</p>
     <button class="btn" type="submit">Publicar</button>
   </form>`;
+}
+
+// ===== Buscan rival =====
+let rivales = RIVAL_LIVE ? [] : [
+  {equipo:"Los Pibes del Barrio", tipo:"7", nivel:"Intermedio", cuando:"Fin de semana", fecha:"", horario:"Tarde", cancha:"no", zona:"Villa Mitre", nombre:"Nico", whatsapp:"5492910000011", nota:"Tercer tiempo incluido", creado:Date.now()-2*864e5},
+  {equipo:"Oficina FC", tipo:"5", nivel:"Recreativo", cuando:"Día puntual", fecha:hoyISO(2), horario:"Noche", cancha:"si", zona:"Centro", nombre:"Martín", whatsapp:"5492910000012", nota:"Tenemos cancha a las 21, pagamos mitad y mitad", creado:Date.now()-864e5},
+  {equipo:"Veteranos Palihue", tipo:"9", nivel:"Competitivo", cuando:"Entre semana", fecha:"", horario:"Noche", cancha:"no", zona:"Palihue", nombre:"Gustavo", whatsapp:"5492910000013", nota:"", creado:Date.now()-5*864e5}
+];
+let rivalEstado = RIVAL_LIVE ? "cargando" : "listo", rivalAbierto = false, avisoR = "";
+const DIAS_VIGENCIA = 14;
+function rivalesVigentes(){
+  const hoy = hoyISO(0), lim = Date.now() - DIAS_VIGENCIA*864e5;
+  return rivales.filter(r => r.cuando==="Día puntual" ? (r.fecha && r.fecha >= hoy) : (r.creado||0) > lim)
+    .sort((a,b) => (a.fecha||"9") < (b.fecha||"9") ? -1 : (a.fecha||"9") > (b.fecha||"9") ? 1 : (b.creado||0)-(a.creado||0));
+}
+async function cargarRivales(){
+  try{
+    const r = await fetch(RIVAL_CSV + (RIVAL_CSV.includes("?")?"&":"?") + "t=" + Date.now());
+    const rows = parseCSV(await r.text()); const head = rows.shift().map(h=>h.trim().toLowerCase());
+    const col = k => head.findIndex(h=>h.startsWith(k));
+    const iTs = col("marca") >= 0 ? col("marca") : col("timestamp");
+    const keys = ["equipo","tipo","nivel","cuando","fecha","horario","cancha","zona","nombre","whatsapp","nota"];
+    rivales = rows.map(r => { const o = {}; keys.forEach(k => o[k] = (r[col(k)]||"").trim());
+      const ts = iTs>=0 ? r[iTs] : ""; const m = ts && ts.match(/(\d+)\/(\d+)\/(\d+)/); o.creado = m ? new Date(+m[3], +m[2]-1, +m[1]).getTime() : Date.now(); return o; })
+      .filter(o => o.equipo && o.whatsapp);
+    rivalEstado = "listo";
+  }catch(e){ rivalEstado = "error"; }
+  render();
+}
+const cuandoTxt = r => r.cuando==="Día puntual" && r.fecha ? diaTxt(r.fecha) : (r.cuando||"A convenir");
+function rivalFormHTML(){
+  return `<form class="post" id="rv-form" novalidate>
+    <h3>Publicá tu equipo</h3>
+    <p class="note">Ustedes ya son un equipo y buscan otro para jugar. Completá esto y los rivales te escriben directo. Cancha y horario los arreglan por WhatsApp.</p>
+    <div class="fields">
+      <label class="wide">Nombre del equipo<input id="rv-equipo" maxlength="40" placeholder="Los Pibes del Barrio"></label>
+      <label>Fútbol<select id="rv-tipo"><option value="5">Fútbol 5</option><option value="6">Fútbol 6</option><option value="7" selected>Fútbol 7</option><option value="9">Fútbol 9</option><option value="11">Fútbol 11</option></select></label>
+      <label>Nivel<select id="rv-nivel"><option>Recreativo</option><option selected>Intermedio</option><option>Competitivo</option></select></label>
+      <label>¿Cuándo pueden?<select id="rv-cuando"><option>Cualquier día</option><option>Entre semana</option><option>Fin de semana</option><option>Día puntual</option></select></label>
+      <label id="rv-fecha-l" hidden>¿Qué día?<input id="rv-fecha" type="date" value="${hoyISO(1)}" min="${hoyISO(0)}" max="${hoyISO(30)}"></label>
+      <label>Horario<select id="rv-horario"><option>A convenir</option><option>Tarde</option><option>Noche</option></select></label>
+      <label>¿Tienen cancha?<select id="rv-cancha"><option value="no">No, la buscamos juntos</option><option value="si">Sí, ya tenemos reservada</option></select></label>
+      <label>Zona (opcional)<input id="rv-zona" maxlength="30" placeholder="Villa Mitre, Centro..."></label>
+      <label>Tu nombre<input id="rv-nombre" maxlength="30"></label>
+      <label class="wide">Tu WhatsApp${telfield("rv-wsp","")}</label>
+      <label class="wide">Algo más (opcional)<input id="rv-nota" maxlength="80" placeholder="Tercer tiempo incluido, pagamos mitad y mitad..."></label>
+      <input class="hp" id="rv-web" tabindex="-1" autocomplete="off" aria-hidden="true">
+    </div>
+    <p class="note">Tu nombre y tu WhatsApp quedan visibles para que te escriban. La publicación se borra sola en ${DIAS_VIGENCIA} días, o cuando pasa el día si elegiste uno puntual.</p>
+    <div class="sh-acts"><button class="btn" type="submit">Publicar equipo</button><button class="btn alt" type="button" id="rv-cancelar">Cancelar</button></div>
+  </form>`;
+}
+async function publicarRival(ev){
+  ev.preventDefault();
+  const f = ev.target, v = id => f.querySelector("#"+id).value.trim();
+  if (v("rv-web")) return;
+  const wsp = telAR(v("rv-wsp")) || "";
+  const p = {equipo:v("rv-equipo"), tipo:v("rv-tipo"), nivel:v("rv-nivel"), cuando:v("rv-cuando"), fecha: v("rv-cuando")==="Día puntual" ? v("rv-fecha") : "", horario:v("rv-horario"), cancha:v("rv-cancha"), zona:v("rv-zona"), nombre:v("rv-nombre"), whatsapp:wsp, nota:v("rv-nota"), creado:Date.now()};
+  if (!p.equipo){ $("rv-equipo").focus(); $("rv-equipo").classList.add("bad"); return; }
+  if (!p.nombre){ $("rv-nombre").focus(); $("rv-nombre").classList.add("bad"); return; }
+  if (wsp.length!==13){ $("rv-wsp").focus(); $("rv-wsp").closest(".telbox").classList.add("bad"); return; }
+  if (RIVAL_LIVE){
+    const body = new FormData();
+    for (const k in RIVAL_ENTRY) if (RIVAL_ENTRY[k]) body.append(RIVAL_ENTRY[k], p[k]);
+    try{ await fetch("https://docs.google.com/forms/d/e/"+RIVAL_FORM_ID+"/formResponse",{method:"POST",mode:"no-cors",body}); }
+    catch(e){ avisoR='<p class="err">No se pudo publicar. Revisá tu conexión y probá de nuevo.</p>'; render(); return; }
+  }
+  rivales.push(p); rivalAbierto = false;
+  avisoR = '<p class="ok">¡Equipo publicado! Ya aparece en la lista. A los demás les puede tardar unos minutos en verse.</p>';
+  render();
 }
 
 // Normaliza celulares argentinos al formato que pide WhatsApp: 549 + característica + número (13 dígitos).
@@ -925,6 +1012,28 @@ function render(){
       });
       html += `</div><p class="hint">Tocá un horario y se abre WhatsApp con el turno ya escrito. <span class="hp-pill of mini"><b>Amarillo</b></span> es precio de oferta.</p>`;
     } else html += `<p class="empty"><svg class="ball-ico" aria-hidden="true"><use href="#ball"/></svg>No hay turnos libres para ese día con esos filtros. Probá otro día o consultá directo en la pestaña Canchas.</p>`;
+  } else if (tab === "rival"){
+    html += avisoR;
+    html += rivalAbierto ? rivalFormHTML() : `<div class="post-bar"><div><b>Jugale a un equipo</b><span>¿Tienen equipo armado y no juntan para cancha completa? Publicalo y buscá rival.</span></div><button class="btn" type="button" id="rv-abrir">Publicar mi equipo</button></div>`;
+    if (rivalEstado === "cargando") html += `<p class="empty">Cargando equipos...</p>`;
+    else if (rivalEstado === "error") html += `<p class="empty">No pudimos cargar los equipos. Recargá la página en un rato.</p>`;
+    const lista = rivalesVigentes().filter(r => (filtro==="todas" || filtro==="techada" || String(r.tipo)===filtro) && (!q || (r.equipo+" "+r.zona).toLowerCase().includes(q)));
+    if (lista.length){
+      html += `<p class="resultado"><b>${lista.length}</b> ${lista.length===1?"equipo busca":"equipos buscan"} rival</p><div class="rows">`;
+      lista.forEach(r => {
+        const msg = `Hola${r.nombre?" "+r.nombre:""}! Vi en Canchas Bahía que ${r.equipo} busca rival de fútbol ${r.tipo}. Tenemos equipo armado y les queremos jugar. ¿Coordinamos ${r.cancha==="si"?"el horario":"cancha y horario"}?`;
+        html += `<div class="row-item">
+          <div class="ri-vs" aria-hidden="true"><b>F${esc(r.tipo)}</b><span>VS</span></div>
+          <div class="ri-main"><b class="ri-name">${esc(r.equipo)}</b>
+            <span class="ri-meta">${esc(r.nivel)} · ${esc(cuandoTxt(r))}${r.horario && r.horario!=="A convenir"?" a la "+esc(r.horario.toLowerCase()):""}${r.zona?" · "+esc(r.zona):""}${r.nombre?" · contacto "+esc(r.nombre):""}</span>
+            ${r.nota?`<span class="ri-nota">"${esc(r.nota)}"</span>`:""}
+          </div>
+          <span class="tg ${r.cancha==="si"?"tg-ok":""}">${r.cancha==="si"?"Tienen cancha":"Buscan cancha"}</span>
+          <a class="ri-btn" target="_blank" rel="noopener" href="${wa(r.whatsapp, msg)}">${waIco}<span>Jugarles</span></a>
+        </div>`;
+      });
+      html += `</div><p class="hint">Tocá "Jugarles" y se abre WhatsApp con el capitán del equipo. Si no tienen cancha, fíjense juntos en la pestaña Turnos libres.</p>`;
+    } else if (rivalEstado==="listo") html += `<p class="empty"><svg class="ball-ico" aria-hidden="true"><use href="#ball"/></svg>No hay equipos buscando rival con ese filtro. Publicá el tuyo y que te desafíen.</p>`;
   } else {
     html += aviso;
     html += formAbierto ? formHTML() : `<div class="post-bar"><div><b>¿Te falta gente?</b><span>Publicalo en 30 segundos y te escriben directo.</span></div><button class="btn" type="button" id="fu-abrir">Publicar un Falta uno</button></div>`;
@@ -948,6 +1057,7 @@ function render(){
   document.getElementById("n-canchas").textContent = canchas.length;
   document.getElementById("n-ofertas").textContent = slotsVigentes(hoyISO(0)).length;
   document.getElementById("n-falta").textContent = vigentes().length;
+  document.getElementById("n-rival").textContent = rivalesVigentes().length;
   document.querySelectorAll(".dcard").forEach(b => b.onclick = () => { diaSel = b.dataset.d; render(); });
   document.querySelectorAll(".chip.franja").forEach(b => b.onclick = () => { franja = b.dataset.fr; render(); });
   const hoyS = slotsVigentes(hoyISO(0));
@@ -955,7 +1065,19 @@ function render(){
   contar("b-libres", hoyS.length);
   contar("b-ofertas", hoyS.filter(s=>s.estado==="oferta").length);
   contar("b-falta", vigentes().length);
+  contar("b-rival", rivalesVigentes().length);
   document.getElementById("b-hora").textContent = new Date().toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit",hour12:false}) + " hs";
+  const rva = document.getElementById("rv-abrir");
+  if (rva) rva.onclick = () => { rivalAbierto = true; avisoR = ""; render(); document.getElementById("rv-equipo").focus(); };
+  const rvf = document.getElementById("rv-form");
+  if (rvf){
+    rvf.onsubmit = publicarRival;
+    document.getElementById("rv-cancelar").onclick = () => { rivalAbierto = false; render(); };
+    const cu = document.getElementById("rv-cuando");
+    const sync = () => { document.getElementById("rv-fecha-l").hidden = cu.value !== "Día puntual"; };
+    cu.onchange = sync; sync();
+    atarTel("rv-wsp", "Te van a escribir a ");
+  }
   const ab = document.getElementById("fu-abrir");
   if (ab) ab.onclick = () => { formAbierto = true; aviso = ""; render(); document.getElementById("fu-cancha").focus(); };
   const fm = document.getElementById("fu-form");
@@ -1164,6 +1286,7 @@ document.getElementById("owner-wa").href = wa(ADMIN_WA, "Hola! Tengo una cancha 
 render();
 if (OWNER_ID || location.hash === "#panel") abrirPanel(true);
 if (LIVE){ cargarFalta(); setInterval(cargarFalta, 120000); }
+if (RIVAL_LIVE){ cargarRivales(); setInterval(cargarRivales, 180000); }
 if (SLOT_LIVE){ cargarSlots(); setInterval(cargarSlots, 60000); }
 else setInterval(() => { if (!enPanel && !formAbierto) render(); }, 60000);
 </script>
