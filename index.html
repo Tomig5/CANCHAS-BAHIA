@@ -687,33 +687,19 @@ body.sin-scroll{overflow:hidden}
 // ===== CONFIGURACIÓN (completar una sola vez) =====
 // Número de WhatsApp de Canchas Bahía (formato internacional sin +)
 const ADMIN_WA = "5492910000000";
-// Google Form del "Falta uno": la parte larga del link, entre /d/e/ y /viewform
-const FORM_ID = "";
-// IDs de cada pregunta del form (entry.XXXX), en este orden
-const ENTRY = {cancha:"", tipo:"", fecha:"", hora:"", faltan:"", nivel:"", nombre:"", whatsapp:""};
-// Link de la hoja de respuestas publicada como CSV (Archivo > Compartir > Publicar en la web > CSV)
-const SHEET_CSV = "";
-// ===================================================
-// Turnos libres: segundo Google Form (complejo, tipo, fecha, hora, estado, precio, clave)
-const SLOT_FORM_ID = "";
-const SLOT_ENTRY = {complejo:"", tipo:"", fecha:"", hora:"", estado:"", precio:"", clave:""};
-// Pestaña "publico" de esa hoja (solo filas con clave válida, sin la columna clave), publicada como CSV
-const SLOT_CSV = "";
-// ===================================================
-// "Buscan rival": tercer Google Form (equipo, tipo, nivel, cuando, fecha, horario, cancha, zona, nombre, whatsapp, nota)
-const RIVAL_FORM_ID = "";
-const RIVAL_ENTRY = {equipo:"", tipo:"", nivel:"", cuando:"", fecha:"", horario:"", cancha:"", zona:"", nombre:"", whatsapp:"", nota:""};
-const RIVAL_CSV = "";
-// Registro de consultas a canchas (cuarto Google Form: complejo, origen, tipo, fecha, hora, codigo) y su hoja publicada como CSV
-const CLICK_FORM_ID = "";
-const CLICK_ENTRY = {complejo:"", origen:"", tipo:"", fecha:"", hora:"", codigo:""};
-const CLICK_CSV = "";
+// URL del motor de Google (Apps Script implementado como aplicación web; termina en /exec).
+// Vacío = la página funciona con datos de ejemplo.
+const API_URL = "";
 const SITE_URL = "https://canchasbahia.netlify.app";
-const LIVE = !!(FORM_ID && SHEET_CSV);
-const RIVAL_LIVE = !!(RIVAL_FORM_ID && RIVAL_CSV);
-const SLOT_LIVE = !!(SLOT_FORM_ID && SLOT_CSV);
+// ===================================================
+const API = !!API_URL;
+const LIVE = API, RIVAL_LIVE = API, SLOT_LIVE = API;
+async function enviar(datos, keepalive){
+  try{ const r = await fetch(API_URL, {method:"POST", body: JSON.stringify(datos), keepalive: !!keepalive}); return await r.json(); }
+  catch(e){ return {ok:false, error:"red"}; }
+}
 
-const canchas = [
+let canchas = API ? [] : [
   {id:"ladoce", dir:"Garibaldi 1250", n:"Complejo La Doce (ejemplo)", b:"Villa Mitre", t:[5,7], techada:true, h:"Lun a dom 10 a 24", wa:"5492910000001", precio:{5:"50000",7:"84000"}},
   {id:"potrero", dir:"Florida 480", n:"El Potrero Sur (ejemplo)", b:"Bella Vista", t:[5], techada:true, h:"Lun a vie 11 a 23", wa:"5492910000002", precio:{5:"45000"}},
   {id:"norte", dir:"Av. Cabrera 3900", n:"Sintético Norte (ejemplo)", b:"Palihue", t:[5,6,9], techada:false, h:"Todos los días 9 a 24", wa:"5492910000003", precio:{5:"48000",6:"60000",9:"95000"}},
@@ -734,17 +720,18 @@ if (!SLOT_LIVE){
     ["ladoce",5,1,14,"oferta","30000"],["ombu",9,1,20,"libre"],["medialuna",6,1,18,"oferta","45000"],["doblepared",5,1,21,"libre"],["norte",6,1,22,"libre"],["potrero",5,2,16,"oferta","32000"],["ombu",7,2,21,"libre"],["ladoce",7,3,20,"libre"],["norte",5,3,15,"oferta","33000"],["doblepared",5,4,22,"libre"],["medialuna",7,4,21,"libre"],["potrero",5,5,19,"libre"],["ombu",9,5,17,"oferta","70000"],["ladoce",5,6,18,"libre"],["norte",9,6,21,"libre"]];
   demo.forEach(([c,t,d,h,e,p]) => { if (d===0 && h<=ahoraH) h = Math.min(23, ahoraH+1+(h%3)); slots.set(kSlot(c,t,hoyISO(d),String(h)), {estado:e, precio:p||""}); });
 }
-async function cargarSlots(){
+// Trae todo de una vez desde la hoja de Google: canchas, turnos, Falta uno y rivales
+async function cargarTodo(){
   try{
-    const r = await fetch(SLOT_CSV + (SLOT_CSV.includes("?")?"&":"?") + "t=" + Date.now());
-    const rows = parseCSV(await r.text()); const head = rows.shift().map(h=>h.trim().toLowerCase());
-    const col = k => head.findIndex(h=>h.startsWith(k));
-    const i = {c:col("complejo"),t:col("tipo"),f:col("fecha"),h:col("hora"),e:col("estado"),p:col("precio")};
+    const r = await fetch(API_URL + "?accion=datos&t=" + Date.now());
+    const d = await r.json(); if (!d.ok) throw new Error("datos");
+    canchas = d.canchas.map(c => ({id:c.id, n:c.nombre, b:c.barrio, dir:c.direccion, h:c.horario, t:c.tipos.filter(Boolean), techada:c.techada, wa:c.whatsapp, precio:c.precios||{}}));
     slots.clear();
-    rows.forEach(r => { const k = kSlot((r[i.c]||"").trim(),(r[i.t]||"").trim(),(r[i.f]||"").trim(),(r[i.h]||"").trim());
-      const e = (r[i.e]||"").trim().toLowerCase();
-      if (e==="libre"||e==="oferta") slots.set(k,{estado:e,precio:(r[i.p]||"").trim()}); else slots.delete(k); });
-  }catch(e){}
+    d.turnos.forEach(t => slots.set(kSlot(t.complejo, t.tipo, t.fecha, t.hora), {estado:t.estado, precio:t.precio||""}));
+    falta = d.falta;
+    rivales = d.rivales;
+    faltaEstado = rivalEstado = "listo";
+  }catch(e){ if (!canchas.length) faltaEstado = rivalEstado = "error"; }
   render(); if (enPanel) renderPanel();
 }
 function slotsVigentes(fecha){
@@ -774,18 +761,6 @@ function parseCSV(t){
   if(f||row.length){row.push(f);rows.push(row);}
   return rows;
 }
-async function cargarFalta(){
-  try{
-    const r = await fetch(SHEET_CSV + (SHEET_CSV.includes("?")?"&":"?") + "t=" + Date.now());
-    const rows = parseCSV(await r.text());
-    const head = rows.shift().map(h=>h.trim().toLowerCase());
-    const col = k => head.findIndex(h=>h.startsWith(k));
-    const idx = {cancha:col("cancha"),tipo:col("tipo"),fecha:col("fecha"),hora:col("hora"),faltan:col("faltan"),nivel:col("nivel"),nombre:col("nombre"),whatsapp:col("whatsapp")};
-    falta = rows.map(r=>{const o={}; for(const k in idx) o[k]=(r[idx[k]]||"").trim(); return o;}).filter(o=>o.cancha&&o.fecha&&o.hora);
-    faltaEstado = "listo";
-  }catch(e){ faltaEstado = "error"; }
-  render();
-}
 const cuando = f => new Date(f.fecha+"T"+(f.hora.length===5?f.hora:"00:00")+":00");
 function vigentes(){
   const ahora = Date.now() - 30*60e3; // se oculta media hora después de empezar
@@ -808,11 +783,9 @@ async function publicar(ev){
   const p = {cancha: v("fu-cancha")==="otra" ? v("fu-otra") : v("fu-cancha"), tipo:v("fu-tipo"), fecha:v("fu-fecha"), hora:v("fu-hora"), faltan:v("fu-faltan"), nivel:v("fu-nivel"), nombre:v("fu-nombre"), whatsapp:wsp};
   if (!p.cancha || !p.fecha || !p.hora || wsp.length!==13){ aviso='<p class="err">Completá cancha, día, hora y un celular válido con característica, por ejemplo 291 412 3456. Revisá que no le falte ni le sobre ningún número.</p>'; render(); return; }
   if (cuando(p) < Date.now()){ aviso='<p class="err">Ese horario ya pasó. Revisá el día y la hora.</p>'; render(); return; }
-  if (LIVE){
-    const body = new FormData();
-    for (const k in ENTRY) if (ENTRY[k]) body.append(ENTRY[k], p[k]);
-    try{ await fetch("https://docs.google.com/forms/d/e/"+FORM_ID+"/formResponse",{method:"POST",mode:"no-cors",body}); }
-    catch(e){ aviso='<p class="err">No se pudo publicar. Revisá tu conexión y probá de nuevo.</p>'; render(); return; }
+  if (API){
+    const res = await enviar({accion:"falta", ...p});
+    if (!res.ok){ aviso = res.error==="red" ? '<p class="err">No se pudo publicar. Revisá tu conexión y probá de nuevo.</p>' : '<p class="err">No se pudo publicar. Revisá que el día sea dentro de esta semana y que el WhatsApp esté completo.</p>'; render(); return; }
   }
   falta.push(p);
   formAbierto = false;
@@ -854,20 +827,6 @@ function rivalesVigentes(){
   const hoy = hoyISO(0);
   return rivales.filter(r => r.fecha && r.fecha >= hoy).sort((a,b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : (b.creado||0)-(a.creado||0));
 }
-async function cargarRivales(){
-  try{
-    const r = await fetch(RIVAL_CSV + (RIVAL_CSV.includes("?")?"&":"?") + "t=" + Date.now());
-    const rows = parseCSV(await r.text()); const head = rows.shift().map(h=>h.trim().toLowerCase());
-    const col = k => head.findIndex(h=>h.startsWith(k));
-    const iTs = col("marca") >= 0 ? col("marca") : col("timestamp");
-    const keys = ["equipo","tipo","nivel","cuando","fecha","horario","cancha","zona","nombre","whatsapp","nota"];
-    rivales = rows.map(r => { const o = {}; keys.forEach(k => o[k] = (r[col(k)]||"").trim());
-      const ts = iTs>=0 ? r[iTs] : ""; const m = ts && ts.match(/(\d+)\/(\d+)\/(\d+)/); o.creado = m ? new Date(+m[3], +m[2]-1, +m[1]).getTime() : Date.now(); return o; })
-      .filter(o => o.equipo && o.whatsapp);
-    rivalEstado = "listo";
-  }catch(e){ rivalEstado = "error"; }
-  render();
-}
 const cuandoTxt = r => r.fecha ? diaTxt(r.fecha) : "A convenir";
 function rivalFormHTML(){
   return `<form class="post" id="rv-form" novalidate>
@@ -900,11 +859,9 @@ async function publicarRival(ev){
   if (!p.fecha || p.fecha < hoyISO(0) || p.fecha > hoyISO(6)){ $("rv-fecha").focus(); $("rv-fecha").classList.add("bad"); return; }
   if (!p.nombre){ $("rv-nombre").focus(); $("rv-nombre").classList.add("bad"); return; }
   if (wsp.length!==13){ $("rv-wsp").focus(); $("rv-wsp").closest(".telbox").classList.add("bad"); return; }
-  if (RIVAL_LIVE){
-    const body = new FormData();
-    for (const k in RIVAL_ENTRY) if (RIVAL_ENTRY[k]) body.append(RIVAL_ENTRY[k], p[k]);
-    try{ await fetch("https://docs.google.com/forms/d/e/"+RIVAL_FORM_ID+"/formResponse",{method:"POST",mode:"no-cors",body}); }
-    catch(e){ avisoR='<p class="err">No se pudo publicar. Revisá tu conexión y probá de nuevo.</p>'; render(); return; }
+  if (API){
+    const res = await enviar({accion:"rival", ...p});
+    if (!res.ok){ avisoR = '<p class="err">No se pudo publicar. Revisá tu conexión y probá de nuevo.</p>'; render(); return; }
   }
   rivales.push(p); rivalAbierto = false;
   avisoR = '<p class="ok">¡Equipo publicado! Ya aparece en la lista. A los demás les puede tardar unos minutos en verse.</p>';
@@ -1114,7 +1071,7 @@ document.querySelectorAll("#filters .chip").forEach(b => b.addEventListener("cli
 // ===== Panel del dueño =====
 const qs = new URLSearchParams(location.search);
 const OWNER_ID = qs.get("c"), OWNER_KEY = qs.get("k") || "";
-let pComplejo = (OWNER_ID && canchas.some(c=>c.id===OWNER_ID)) ? OWNER_ID : canchas[0].id;
+let pComplejo = OWNER_ID || (canchas[0] ? canchas[0].id : "");
 let pTipo = null, pDia = hoyISO(0), pAviso = "", pSel = null, pOpc = "libre";
 const $ = id => document.getElementById(id);
 
@@ -1130,14 +1087,15 @@ function reserva(t,f,h){
   const fx = priv.fijos[kFijo(t,f,h)]; if (fx && !priv.exc[kRes(t,f,h)]) return {...fx, fijo:true};
   return null;
 }
-function publicar(f, h, estado, precio){
+function publicarHora(f, h, estado, precio){
   const k = kSlot(pComplejo, pTipo, f, h);
   if (estado === "libre" || estado === "oferta") slots.set(k, {estado, precio}); else slots.delete(k);
-  if (SLOT_LIVE){
-    const body = new FormData(), v = {complejo:pComplejo, tipo:String(pTipo), fecha:f, hora:h, estado, precio, clave:OWNER_KEY};
-    for (const x in SLOT_ENTRY) if (SLOT_ENTRY[x]) body.append(SLOT_ENTRY[x], v[x]);
-    fetch("https://docs.google.com/forms/d/e/"+SLOT_FORM_ID+"/formResponse",{method:"POST",mode:"no-cors",body}).catch(()=>{
-      pAviso = '<span class="err">No se pudo guardar. Revisá la conexión y probá de nuevo.</span>'; renderPanel(); });
+  if (API){
+    enviar({accion:"turno", complejo:pComplejo, clave:OWNER_KEY, tipo:String(pTipo), fecha:f, hora:h, estado, precio}).then(res => {
+      if (res.ok) return;
+      pAviso = res.error==="clave" ? '<span class="err">Tu link de acceso no es válido. Pedinos uno nuevo por WhatsApp.</span>' : '<span class="err">No se pudo guardar el '+h+':00. Revisá la conexión y probá de nuevo.</span>';
+      cargarTodo();
+    });
   }
 }
 function estadoHora(h){
@@ -1153,25 +1111,25 @@ const candado = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" w
 const telfield = (id, val) => `<span class="telbox"><span class="telpre">+54 9</span><input id="${id}" inputmode="numeric" autocomplete="tel-national" placeholder="291 4123456" maxlength="16" value="${val}"></span><small class="tel-chk" id="${id}-chk">${TEL_AYUDA}</small>`;
 const ESTADOS = {libre:"Libre", oferta:"En oferta", reservado:"Reservado", ocupado:"Ocupado"};
 // Consultas del mes para este complejo: salen de la hoja de registros (en la demo, un número de ejemplo)
-let clicsHoja = null;
-async function cargarClics(){
-  try{
-    const r = await fetch(CLICK_CSV + (CLICK_CSV.includes("?")?"&":"?") + "t=" + Date.now());
-    const rows = parseCSV(await r.text()); const head = rows.shift().map(h=>h.trim().toLowerCase());
-    const iC = head.findIndex(h=>h.startsWith("complejo")), iT = head.findIndex(h=>h.startsWith("marca")||h.startsWith("timestamp"));
-    clicsHoja = rows.map(r => { const m = (r[iT]||"").match(/(\d+)\/(\d+)\/(\d+)/); return {complejo:(r[iC]||"").trim(), mes: m ? (+m[3])*100 + (+m[2]) : 0}; });
-  }catch(e){ clicsHoja = []; }
+// Consultas del mes para este complejo (las cuenta el motor de Google; en la demo, un número de ejemplo)
+let consultasPanel = null;
+async function cargarConsultas(){
+  try{ const r = await fetch(API_URL + "?accion=panel&c=" + encodeURIComponent(OWNER_ID) + "&k=" + encodeURIComponent(OWNER_KEY) + "&t=" + Date.now());
+    const d = await r.json(); consultasPanel = d.ok ? d.consultasMes : null; }catch(e){}
   if (enPanel) renderPanel();
 }
 function consultasMes(id){
-  if (CLICK_CSV){ if (!clicsHoja) return null; const d = new Date(), mes = d.getFullYear()*100 + d.getMonth()+1; return clicsHoja.filter(x => x.complejo===id && x.mes===mes).length; }
+  if (API) return consultasPanel;
   return 12 + canchas.findIndex(c=>c.id===id)*5 + clicsLocales;
 }
 function renderPanel(){
   const bloqueado = SLOT_LIVE && !OWNER_KEY;
   $("p-bloqueo").hidden = !bloqueado; $("p-cuerpo").hidden = bloqueado;
   if (bloqueado) return;
+  if (!pComplejo && canchas[0]) pComplejo = canchas[0].id;
   const c = canchas.find(x=>x.id===pComplejo);
+  if (!c){ $("p-titulo").textContent = canchas.length ? "Complejo no encontrado" : "Cargando…"; $("p-cuerpo").hidden = true; return; }
+  $("p-cuerpo").hidden = false;
   if (!c.t.includes(pTipo)) pTipo = c.t[0];
   $("p-titulo").textContent = c.n;
   $("p-sub").textContent = `${c.b} · ${c.dir||""}`;
@@ -1263,11 +1221,11 @@ function guardarHora(){
     const precio = soloNum($("e-precio").value);
     if (!precio){ $("e-precio").focus(); $("e-precio").closest(".telbox").classList.add("bad"); return; }
     delete priv.res[kr]; if (priv.fijos[kf]) priv.exc[kr] = true;
-    publicar(pDia, h, "oferta", precio);
+    publicarHora(pDia, h, "oferta", precio);
     pAviso = `<span class="ok">${h}:00 publicado en oferta a ${plata(precio)} pesos. Ya lo ven los jugadores.</span>`;
   } else if (pOpc === "libre"){
     delete priv.res[kr]; if (priv.fijos[kf]) priv.exc[kr] = true;
-    publicar(pDia, h, "libre", "");
+    publicarHora(pDia, h, "libre", "");
     pAviso = `<span class="ok">${h}:00 publicado como libre. Ya lo ven los jugadores.</span>`;
   } else if (pOpc === "reservado"){
     const d = {nombre:$("e-nombre").value.trim(), tel:$("e-tel").value.trim(), nota:$("e-nota").value.trim(), codigo:$("e-codigo").value.trim().toUpperCase()};
@@ -1275,12 +1233,12 @@ function guardarHora(){
     if (d.tel && !telAR(d.tel)){ $("e-tel").focus(); return; }
     delete priv.exc[kr];
     if ($("e-fijo").checked){ priv.fijos[kf] = d; delete priv.res[kr]; } else { priv.res[kr] = d; if (priv.fijos[kf]) delete priv.fijos[kf]; }
-    publicar(pDia, h, "ocupado", "");
+    publicarHora(pDia, h, "ocupado", "");
     pAviso = `<span class="ok">${h}:00 reservado a nombre de ${esc(d.nombre)}${$("e-fijo").checked?", todas las semanas":""}.</span>`;
   } else {
     delete priv.res[kr]; if (priv.fijos[kf]) priv.exc[kr] = true;
     priv.ocup[kr] = true;
-    publicar(pDia, h, "ocupado", "");
+    publicarHora(pDia, h, "ocupado", "");
     pAviso = `<span class="ok">${h}:00 marcado como ocupado.</span>`;
   }
   guardarPriv(); pSel = null; renderPanel(); render();
@@ -1298,7 +1256,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && pSel) cerr
 $("p-complejo").onchange = e => { pComplejo = e.target.value; priv = leerPriv(); pSel = null; renderPanel(); };
 $("p-todos").onclick = () => {
   const ahoraH = new Date().getHours(), hoy = hoyISO(0); let n = 0;
-  HORAS.forEach(h => { if (pDia===hoy && Number(h)<=ahoraH) return; const e = estadoHora(h); if (e.cls==="ocupado" && !priv.ocup[kRes(pTipo,pDia,h)]){ publicar(pDia,h,"libre",""); n++; } });
+  HORAS.forEach(h => { if (pDia===hoy && Number(h)<=ahoraH) return; const e = estadoHora(h); if (e.cls==="ocupado" && !priv.ocup[kRes(pTipo,pDia,h)]){ publicarHora(pDia,h,"libre",""); n++; } });
   pAviso = n ? `<span class="ok">${n} horarios publicados como libres.</span>` : '<span class="ok">No había horarios vacíos para publicar.</span>';
   pSel = null; renderPanel(); render();
 };
@@ -1321,11 +1279,7 @@ document.addEventListener("click", e => {
     const codigo = nuevoCodigo();
     a.href = num + "?text=" + encodeURIComponent(txt + "\n\nCódigo de reserva Canchas Bahía: " + codigo);
     clicsLocales++;
-    if (CLICK_FORM_ID){
-      const body = new FormData(), v = {complejo, origen, tipo, fecha, hora, codigo};
-      for (const k in CLICK_ENTRY) if (CLICK_ENTRY[k]) body.append(CLICK_ENTRY[k], v[k]);
-      fetch("https://docs.google.com/forms/d/e/"+CLICK_FORM_ID+"/formResponse",{method:"POST",mode:"no-cors",body,keepalive:true}).catch(()=>{});
-    }
+    if (API) enviar({accion:"consulta", complejo, origen, tipo, fecha, hora, codigo}, true);
     return;
   }
   const b = e.target.closest("[data-ver]");
@@ -1341,10 +1295,7 @@ document.getElementById("reportar").href = wa(ADMIN_WA, "Hola! Encontré un prob
 document.getElementById("owner-wa").href = wa(ADMIN_WA, "Hola! Tengo una cancha y quiero sumarla a Canchas Bahía.");
 render();
 if (OWNER_ID || location.hash === "#panel") abrirPanel(true); else if (location.hash) setTimeout(abrirDesdeLink, 50);
-if (LIVE){ cargarFalta(); setInterval(cargarFalta, 120000); }
-if (RIVAL_LIVE){ cargarRivales(); setInterval(cargarRivales, 180000); }
-if (SLOT_LIVE){ cargarSlots(); setInterval(cargarSlots, 60000); }
-if (CLICK_CSV) cargarClics();
-else setInterval(() => { if (!enPanel && !formAbierto) render(); }, 60000);
+if (API){ cargarTodo(); setInterval(cargarTodo, 60000); if (OWNER_ID && OWNER_KEY) cargarConsultas(); document.querySelectorAll(".demo").forEach(el => el.hidden = true); }
+if (!API) setInterval(() => { if (!enPanel && !formAbierto) render(); }, 60000);
 </script>
 </body></html>
