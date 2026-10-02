@@ -397,7 +397,7 @@ header.hero .hero-in{z-index:2}
 .pn-canchas{align-self:flex-start}
 .panel .dcard{background:var(--bg)}
 .panel .dcard[aria-pressed="true"]{background:var(--turf)}
-.pn-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pn-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
 .pn-kpis div{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column}
 .pn-kpis b{font:800 30px/1 var(--display);font-variant-numeric:tabular-nums}
 .pn-kpis span{font-size:12.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
@@ -457,6 +457,12 @@ body.sin-scroll{overflow:hidden}
 .ri-nota{font-size:13.5px;color:var(--fg);font-style:italic;margin-top:2px}
 .tg-ok{border-color:var(--wa);color:var(--wa)}
 @media (max-width:640px){ .row-item:has(.ri-vs) .ri-main{flex-basis:calc(100% - 80px)} }
+
+.ri-turnos{align-self:flex-start;margin-top:6px;background:none;border:0;padding:0;color:var(--wa);font:600 13.5px var(--body);cursor:pointer;text-align:left}
+.ri-turnos:hover{text-decoration:underline}
+.kpi-cb{background:color-mix(in srgb,var(--bib) 22%,var(--surface))!important;border-color:color-mix(in srgb,var(--bib) 60%,transparent)!important}
+.fijo.cb{background:var(--bib);color:var(--bib-ink)}
+@media (max-width:640px){ .pn-kpis{grid-template-columns:1fr 1fr} }
 </style></head><body>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -698,6 +704,11 @@ const SLOT_CSV = "";
 const RIVAL_FORM_ID = "";
 const RIVAL_ENTRY = {equipo:"", tipo:"", nivel:"", cuando:"", fecha:"", horario:"", cancha:"", zona:"", nombre:"", whatsapp:"", nota:""};
 const RIVAL_CSV = "";
+// Registro de consultas a canchas (cuarto Google Form: complejo, origen, tipo, fecha, hora, codigo) y su hoja publicada como CSV
+const CLICK_FORM_ID = "";
+const CLICK_ENTRY = {complejo:"", origen:"", tipo:"", fecha:"", hora:"", codigo:""};
+const CLICK_CSV = "";
+const SITE_URL = "https://canchasbahia.netlify.app";
 const LIVE = !!(FORM_ID && SHEET_CSV);
 const RIVAL_LIVE = !!(RIVAL_FORM_ID && RIVAL_CSV);
 const SLOT_LIVE = !!(SLOT_FORM_ID && SLOT_CSV);
@@ -832,16 +843,16 @@ function formHTML(){
 
 // ===== Buscan rival =====
 let rivales = RIVAL_LIVE ? [] : [
-  {equipo:"Los Pibes del Barrio", tipo:"7", nivel:"Intermedio", cuando:"Fin de semana", fecha:"", horario:"Tarde", cancha:"no", zona:"Villa Mitre", nombre:"Nico", whatsapp:"5492910000011", nota:"Tercer tiempo incluido", creado:Date.now()-2*864e5},
+  {equipo:"Los Pibes del Barrio", tipo:"7", nivel:"Intermedio", cuando:"Día puntual", fecha:hoyISO(1), horario:"Tarde", cancha:"no", zona:"Villa Mitre", nombre:"Nico", whatsapp:"5492910000011", nota:"Tercer tiempo incluido", creado:Date.now()-2*864e5},
   {equipo:"Oficina FC", tipo:"5", nivel:"Recreativo", cuando:"Día puntual", fecha:hoyISO(2), horario:"Noche", cancha:"si", zona:"Centro", nombre:"Martín", whatsapp:"5492910000012", nota:"Tenemos cancha a las 21, pagamos mitad y mitad", creado:Date.now()-864e5},
-  {equipo:"Veteranos Palihue", tipo:"9", nivel:"Competitivo", cuando:"Entre semana", fecha:"", horario:"Noche", cancha:"no", zona:"Palihue", nombre:"Gustavo", whatsapp:"5492910000013", nota:"", creado:Date.now()-5*864e5}
+  {equipo:"Veteranos Palihue", tipo:"9", nivel:"Competitivo", cuando:"Día puntual", fecha:hoyISO(0), horario:"Noche", cancha:"no", zona:"Palihue", nombre:"Gustavo", whatsapp:"5492910000013", nota:"", creado:Date.now()-5*864e5}
 ];
 let rivalEstado = RIVAL_LIVE ? "cargando" : "listo", rivalAbierto = false, avisoR = "";
 const DIAS_VIGENCIA = 14;
+// Cada equipo publica para un día puntual y desaparece cuando ese día termina
 function rivalesVigentes(){
-  const hoy = hoyISO(0), lim = Date.now() - DIAS_VIGENCIA*864e5;
-  return rivales.filter(r => r.cuando==="Día puntual" ? (r.fecha && r.fecha >= hoy) : (r.creado||0) > lim)
-    .sort((a,b) => (a.fecha||"9") < (b.fecha||"9") ? -1 : (a.fecha||"9") > (b.fecha||"9") ? 1 : (b.creado||0)-(a.creado||0));
+  const hoy = hoyISO(0);
+  return rivales.filter(r => r.fecha && r.fecha >= hoy).sort((a,b) => a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : (b.creado||0)-(a.creado||0));
 }
 async function cargarRivales(){
   try{
@@ -857,7 +868,7 @@ async function cargarRivales(){
   }catch(e){ rivalEstado = "error"; }
   render();
 }
-const cuandoTxt = r => r.cuando==="Día puntual" && r.fecha ? diaTxt(r.fecha) : (r.cuando||"A convenir");
+const cuandoTxt = r => r.fecha ? diaTxt(r.fecha) : "A convenir";
 function rivalFormHTML(){
   return `<form class="post" id="rv-form" novalidate>
     <h3>Publicá tu equipo</h3>
@@ -866,8 +877,7 @@ function rivalFormHTML(){
       <label class="wide">Nombre del equipo<input id="rv-equipo" maxlength="40" placeholder="Los Pibes del Barrio"></label>
       <label>Fútbol<select id="rv-tipo"><option value="5">Fútbol 5</option><option value="6">Fútbol 6</option><option value="7" selected>Fútbol 7</option><option value="9">Fútbol 9</option><option value="11">Fútbol 11</option></select></label>
       <label>Nivel<select id="rv-nivel"><option>Recreativo</option><option selected>Intermedio</option><option>Competitivo</option></select></label>
-      <label>¿Cuándo pueden?<select id="rv-cuando"><option>Cualquier día</option><option>Entre semana</option><option>Fin de semana</option><option>Día puntual</option></select></label>
-      <label id="rv-fecha-l" hidden>¿Qué día?<input id="rv-fecha" type="date" value="${hoyISO(1)}" min="${hoyISO(0)}" max="${hoyISO(30)}"></label>
+      <label>¿Qué día quieren jugar?<input id="rv-fecha" type="date" value="${hoyISO(0)}" min="${hoyISO(0)}" max="${hoyISO(6)}"></label>
       <label>Horario<select id="rv-horario"><option>A convenir</option><option>Tarde</option><option>Noche</option></select></label>
       <label>¿Tienen cancha?<select id="rv-cancha"><option value="no">No, la buscamos juntos</option><option value="si">Sí, ya tenemos reservada</option></select></label>
       <label>Zona (opcional)<input id="rv-zona" maxlength="30" placeholder="Villa Mitre, Centro..."></label>
@@ -876,7 +886,7 @@ function rivalFormHTML(){
       <label class="wide">Algo más (opcional)<input id="rv-nota" maxlength="80" placeholder="Tercer tiempo incluido, pagamos mitad y mitad..."></label>
       <input class="hp" id="rv-web" tabindex="-1" autocomplete="off" aria-hidden="true">
     </div>
-    <p class="note">Tu nombre y tu WhatsApp quedan visibles para que te escriban. La publicación se borra sola en ${DIAS_VIGENCIA} días, o cuando pasa el día si elegiste uno puntual.</p>
+    <p class="note">Tu nombre y tu WhatsApp quedan visibles para que te escriban. La publicación se borra sola cuando termina ese día. Si no consiguieron rival, la vuelven a publicar para otro día.</p>
     <div class="sh-acts"><button class="btn" type="submit">Publicar equipo</button><button class="btn alt" type="button" id="rv-cancelar">Cancelar</button></div>
   </form>`;
 }
@@ -885,8 +895,9 @@ async function publicarRival(ev){
   const f = ev.target, v = id => f.querySelector("#"+id).value.trim();
   if (v("rv-web")) return;
   const wsp = telAR(v("rv-wsp")) || "";
-  const p = {equipo:v("rv-equipo"), tipo:v("rv-tipo"), nivel:v("rv-nivel"), cuando:v("rv-cuando"), fecha: v("rv-cuando")==="Día puntual" ? v("rv-fecha") : "", horario:v("rv-horario"), cancha:v("rv-cancha"), zona:v("rv-zona"), nombre:v("rv-nombre"), whatsapp:wsp, nota:v("rv-nota"), creado:Date.now()};
+  const p = {equipo:v("rv-equipo"), tipo:v("rv-tipo"), nivel:v("rv-nivel"), cuando:"Día puntual", fecha:v("rv-fecha"), horario:v("rv-horario"), cancha:v("rv-cancha"), zona:v("rv-zona"), nombre:v("rv-nombre"), whatsapp:wsp, nota:v("rv-nota"), creado:Date.now()};
   if (!p.equipo){ $("rv-equipo").focus(); $("rv-equipo").classList.add("bad"); return; }
+  if (!p.fecha || p.fecha < hoyISO(0) || p.fecha > hoyISO(6)){ $("rv-fecha").focus(); $("rv-fecha").classList.add("bad"); return; }
   if (!p.nombre){ $("rv-nombre").focus(); $("rv-nombre").classList.add("bad"); return; }
   if (wsp.length!==13){ $("rv-wsp").focus(); $("rv-wsp").closest(".telbox").classList.add("bad"); return; }
   if (RIVAL_LIVE){
@@ -981,7 +992,7 @@ function render(){
       html += `<div class="row-item">
         <div class="ri-main"><b class="ri-name">${esc(c.n)}</b><span class="ri-meta">${esc(c.b)} · ${esc(c.h)}</span>${dirHTML(c)}</div>
         <div class="ri-tags">${c.t.map(t=>`<span class="tg">F${t}</span>`).join("")}${c.techada?'<span class="tg">Techada</span>':''}</div>
-        <a class="ri-btn" target="_blank" rel="noopener" href="${wa(c.wa, "Hola! Te encontré en Canchas Bahía. ¿Tenés turno disponible?")}">${waIco}<span>Consultar</span></a>
+        <a class="ri-btn" target="_blank" rel="noopener" data-track="${c.id}|consulta||" href="${wa(c.wa, "Hola! Te encontré en Canchas Bahía. ¿Tenés turno disponible?")}">${waIco}<span>Consultar</span></a>
       </div>`;
     });
     html += `</div>`;
@@ -1007,7 +1018,7 @@ function render(){
           <div class="ri-hours">${g.hs.map(x => {
             const of = x.estado==="oferta" && x.precio;
             const msg = `Hola! Vi en Canchas Bahía que tenés libre la cancha de ${tipoTxt(x.tipo).toLowerCase()} ${diaTxt(x.fecha).toLowerCase()} a las ${x.hora}:00${of?` a ${plata(x.precio)} pesos`:""}. ¿Me la reservás?`;
-            return `<a class="hp-pill${of?" of":""}" target="_blank" rel="noopener" href="${wa(x.c.wa,msg)}" title="Reservar ${x.hora}:00 por WhatsApp"><b>${x.hora}:00</b>${of?`<small>${plata(x.precio)}</small>`:""}</a>`; }).join("")}</div>
+            return `<a class="hp-pill${of?" of":""}" target="_blank" rel="noopener" data-track="${x.c.id}|${of?"oferta":"turno"}|${x.tipo}|${x.fecha}|${x.hora}" href="${wa(x.c.wa,msg)}" title="Reservar ${x.hora}:00 por WhatsApp"><b>${x.hora}:00</b>${of?`<small>${plata(x.precio)}</small>`:""}</a>`; }).join("")}</div>
         </div>`;
       });
       html += `</div><p class="hint">Tocá un horario y se abre WhatsApp con el turno ya escrito. <span class="hp-pill of mini"><b>Amarillo</b></span> es precio de oferta.</p>`;
@@ -1021,18 +1032,21 @@ function render(){
     if (lista.length){
       html += `<p class="resultado"><b>${lista.length}</b> ${lista.length===1?"equipo busca":"equipos buscan"} rival</p><div class="rows">`;
       lista.forEach(r => {
-        const msg = `Hola${r.nombre?" "+r.nombre:""}! Vi en Canchas Bahía que ${r.equipo} busca rival de fútbol ${r.tipo}. Tenemos equipo armado y les queremos jugar. ¿Coordinamos ${r.cancha==="si"?"el horario":"cancha y horario"}?`;
+        const libres = slotsVigentes(r.fecha).filter(x => String(x.tipo)===String(r.tipo));
+        const linkT = `${SITE_URL}/#turnos-${r.tipo}-${r.fecha}`;
+        const msg = `Hola${r.nombre?" "+r.nombre:""}! Vi en Canchas Bahía que ${r.equipo} busca rival de fútbol ${r.tipo} para ${diaTxt(r.fecha).toLowerCase()}. Tenemos equipo armado y les queremos jugar. ¿Coordinamos ${r.cancha==="si"?"el horario":"cancha y horario"}?` + (r.cancha==="si" ? "" : `\n\nTurnos libres de fútbol ${r.tipo} para ese día: ${linkT}`);
         html += `<div class="row-item">
           <div class="ri-vs" aria-hidden="true"><b>F${esc(r.tipo)}</b><span>VS</span></div>
           <div class="ri-main"><b class="ri-name">${esc(r.equipo)}</b>
             <span class="ri-meta">${esc(r.nivel)} · ${esc(cuandoTxt(r))}${r.horario && r.horario!=="A convenir"?" a la "+esc(r.horario.toLowerCase()):""}${r.zona?" · "+esc(r.zona):""}${r.nombre?" · contacto "+esc(r.nombre):""}</span>
             ${r.nota?`<span class="ri-nota">"${esc(r.nota)}"</span>`:""}
+            ${r.cancha!=="si" ? `<button class="ri-turnos" type="button" data-ver="${esc(r.tipo)}|${esc(r.fecha)}">${libres.length ? `${libres.length} ${libres.length===1?"turno libre":"turnos libres"} de F${esc(r.tipo)} ese día →` : `Ver turnos de F${esc(r.tipo)} →`}</button>` : ""}
           </div>
           <span class="tg ${r.cancha==="si"?"tg-ok":""}">${r.cancha==="si"?"Tienen cancha":"Buscan cancha"}</span>
           <a class="ri-btn" target="_blank" rel="noopener" href="${wa(r.whatsapp, msg)}">${waIco}<span>Jugarles</span></a>
         </div>`;
       });
-      html += `</div><p class="hint">Tocá "Jugarles" y se abre WhatsApp con el capitán del equipo. Si no tienen cancha, fíjense juntos en la pestaña Turnos libres.</p>`;
+      html += `</div><p class="hint">Tocá "Jugarles" y se abre WhatsApp con el capitán del equipo. Si no tienen cancha, el mensaje ya lleva el link a los turnos libres de ese día para que la reserven acá.</p>`;
     } else if (rivalEstado==="listo") html += `<p class="empty"><svg class="ball-ico" aria-hidden="true"><use href="#ball"/></svg>No hay equipos buscando rival con ese filtro. Publicá el tuyo y que te desafíen.</p>`;
   } else {
     html += aviso;
@@ -1073,9 +1087,6 @@ function render(){
   if (rvf){
     rvf.onsubmit = publicarRival;
     document.getElementById("rv-cancelar").onclick = () => { rivalAbierto = false; render(); };
-    const cu = document.getElementById("rv-cuando");
-    const sync = () => { document.getElementById("rv-fecha-l").hidden = cu.value !== "Día puntual"; };
-    cu.onchange = sync; sync();
     atarTel("rv-wsp", "Te van a escribir a ");
   }
   const ab = document.getElementById("fu-abrir");
@@ -1141,6 +1152,21 @@ const candado = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" w
 
 const telfield = (id, val) => `<span class="telbox"><span class="telpre">+54 9</span><input id="${id}" inputmode="numeric" autocomplete="tel-national" placeholder="291 4123456" maxlength="16" value="${val}"></span><small class="tel-chk" id="${id}-chk">${TEL_AYUDA}</small>`;
 const ESTADOS = {libre:"Libre", oferta:"En oferta", reservado:"Reservado", ocupado:"Ocupado"};
+// Consultas del mes para este complejo: salen de la hoja de registros (en la demo, un número de ejemplo)
+let clicsHoja = null;
+async function cargarClics(){
+  try{
+    const r = await fetch(CLICK_CSV + (CLICK_CSV.includes("?")?"&":"?") + "t=" + Date.now());
+    const rows = parseCSV(await r.text()); const head = rows.shift().map(h=>h.trim().toLowerCase());
+    const iC = head.findIndex(h=>h.startsWith("complejo")), iT = head.findIndex(h=>h.startsWith("marca")||h.startsWith("timestamp"));
+    clicsHoja = rows.map(r => { const m = (r[iT]||"").match(/(\d+)\/(\d+)\/(\d+)/); return {complejo:(r[iC]||"").trim(), mes: m ? (+m[3])*100 + (+m[2]) : 0}; });
+  }catch(e){ clicsHoja = []; }
+  if (enPanel) renderPanel();
+}
+function consultasMes(id){
+  if (CLICK_CSV){ if (!clicsHoja) return null; const d = new Date(), mes = d.getFullYear()*100 + d.getMonth()+1; return clicsHoja.filter(x => x.complejo===id && x.mes===mes).length; }
+  return 12 + canchas.findIndex(c=>c.id===id)*5 + clicsLocales;
+}
 function renderPanel(){
   const bloqueado = SLOT_LIVE && !OWNER_KEY;
   $("p-bloqueo").hidden = !bloqueado; $("p-cuerpo").hidden = bloqueado;
@@ -1163,7 +1189,7 @@ function renderPanel(){
     if (!pasado && (e.cls==="libre"||e.cls==="oferta")) nLib++;
     if (e.cls==="reservado"){ nRes++; caja += Number(c.precio?.[pTipo]||0); }
     let det = "";
-    if (e.cls==="reservado") det = `<b>${esc(e.r.nombre)}</b>${e.r.fijo?' <i class="fijo">Fijo</i>':""}${e.r.tel?` · ${esc(telLindo(telAR(e.r.tel))||e.r.tel)}`:""}${e.r.nota?` · ${esc(e.r.nota)}`:""}`;
+    if (e.cls==="reservado") det = `<b>${esc(e.r.nombre)}</b>${e.r.fijo?' <i class="fijo">Fijo</i>':""}${e.r.codigo?' <i class="fijo cb">Vía Canchas Bahía</i>':""}${e.r.tel?` · ${esc(telLindo(telAR(e.r.tel))||e.r.tel)}`:""}${e.r.nota?` · ${esc(e.r.nota)}`:""}`;
     else if (e.cls==="oferta") det = `Visible para jugadores a ${plata(e.s.precio)} pesos`;
     else if (e.cls==="libre") det = "Visible para jugadores";
     else det = "No se muestra en la página";
@@ -1175,7 +1201,8 @@ function renderPanel(){
       <span class="ag-go" aria-hidden="true">${st==="pasado"?"":"Editar"}</span>
     </button>`;
   }).join("");
-  $("p-resumen").innerHTML = `<div><b>${nRes}</b><span>Turnos reservados</span></div><div><b>${nLib}</b><span>Libres publicados</span></div><div><b>${caja?plata(caja):"0"}</b><span>Caja estimada (pesos)</span></div>`;
+  const cons = consultasMes(pComplejo);
+  $("p-resumen").innerHTML = `<div class="kpi-cb"><b>${cons===null?"—":cons}</b><span>Consultas que te mandó la página este mes</span></div><div><b>${nRes}</b><span>Turnos reservados</span></div><div><b>${nLib}</b><span>Libres publicados</span></div><div><b>${caja?plata(caja):"0"}</b><span>Caja estimada (pesos)</span></div>`;
   $("p-nota").innerHTML = pAviso;
   $("p-nota").hidden = !pAviso;
   pAviso = "";
@@ -1211,6 +1238,7 @@ function renderEditor(){
         <label class="wide">A nombre de<input id="e-nombre" maxlength="40" value="${esc(r.nombre||"")}" placeholder="Pepito"></label>
         <label class="wide">Teléfono (opcional)${telfield("e-tel", esc(r.tel||""))}</label>
         <label class="wide">Nota (opcional)<input id="e-nota" maxlength="80" value="${esc(r.nota||"")}" placeholder="Seña pagada, trae pelota, etc."></label>
+        <label class="wide">Código Canchas Bahía (si vino de la página)<input id="e-codigo" maxlength="8" value="${esc(r.codigo||"")}" placeholder="CB-7K2Q" style="text-transform:uppercase"></label>
       </div>
       <label class="check"><input type="checkbox" id="e-fijo" ${fijoActual?"checked":""}> Turno fijo: todos los ${diaSem} a las ${pSel}:00</label>
       <p class="lock">${candado}Nombre, teléfono y nota los ves solo vos.</p>` : ""}
@@ -1242,7 +1270,7 @@ function guardarHora(){
     publicar(pDia, h, "libre", "");
     pAviso = `<span class="ok">${h}:00 publicado como libre. Ya lo ven los jugadores.</span>`;
   } else if (pOpc === "reservado"){
-    const d = {nombre:$("e-nombre").value.trim(), tel:$("e-tel").value.trim(), nota:$("e-nota").value.trim()};
+    const d = {nombre:$("e-nombre").value.trim(), tel:$("e-tel").value.trim(), nota:$("e-nota").value.trim(), codigo:$("e-codigo").value.trim().toUpperCase()};
     if (!d.nombre){ $("e-nombre").focus(); $("e-nombre").classList.add("bad"); return; }
     if (d.tel && !telAR(d.tel)){ $("e-tel").focus(); return; }
     delete priv.exc[kr];
@@ -1281,13 +1309,42 @@ if (!quieto && "IntersectionObserver" in window){
   const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); } }), {threshold:.12});
   document.querySelectorAll(".rv").forEach(el => { if (el.getBoundingClientRect().top > innerHeight) io.observe(el); });
 }
+// Cada consulta a una cancha lleva un código de reserva y queda registrada (prueba para el dueño)
+const nuevoCodigo = () => "CB-" + Math.random().toString(36).slice(2,6).toUpperCase().replace(/[^A-Z0-9]/g,"X");
+let clicsLocales = 0;
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[data-track]");
+  if (a){
+    const [complejo, origen, tipo="", fecha="", hora=""] = a.dataset.track.split("|");
+    const base = a.dataset.base || a.href; a.dataset.base = base;
+    const i = base.indexOf("?text="), num = base.slice(0, i), txt = decodeURIComponent(base.slice(i+6));
+    const codigo = nuevoCodigo();
+    a.href = num + "?text=" + encodeURIComponent(txt + "\n\nCódigo de reserva Canchas Bahía: " + codigo);
+    clicsLocales++;
+    if (CLICK_FORM_ID){
+      const body = new FormData(), v = {complejo, origen, tipo, fecha, hora, codigo};
+      for (const k in CLICK_ENTRY) if (CLICK_ENTRY[k]) body.append(CLICK_ENTRY[k], v[k]);
+      fetch("https://docs.google.com/forms/d/e/"+CLICK_FORM_ID+"/formResponse",{method:"POST",mode:"no-cors",body,keepalive:true}).catch(()=>{});
+    }
+    return;
+  }
+  const b = e.target.closest("[data-ver]");
+  if (b){ const [t, f] = b.dataset.ver.split("|"); filtro = t; diaSel = f; franja = "todo"; syncChips(); irA("ofertas"); }
+});
+function abrirDesdeLink(){
+  const h = location.hash.slice(1), m = h.match(/^turnos-(\d+)-(\d{4}-\d{2}-\d{2})$/);
+  if (m){ filtro = m[1]; if (m[2] >= hoyISO(0) && m[2] <= hoyISO(6)) diaSel = m[2]; syncChips(); irA("ofertas"); }
+  else if (["falta","rival","canchas","turnos"].includes(h)) irA(h==="turnos" ? "ofertas" : h);
+}
+window.addEventListener("hashchange", abrirDesdeLink);
 document.getElementById("reportar").href = wa(ADMIN_WA, "Hola! Encontré un problema en Canchas Bahía: ");
 document.getElementById("owner-wa").href = wa(ADMIN_WA, "Hola! Tengo una cancha y quiero sumarla a Canchas Bahía.");
 render();
-if (OWNER_ID || location.hash === "#panel") abrirPanel(true);
+if (OWNER_ID || location.hash === "#panel") abrirPanel(true); else if (location.hash) setTimeout(abrirDesdeLink, 50);
 if (LIVE){ cargarFalta(); setInterval(cargarFalta, 120000); }
 if (RIVAL_LIVE){ cargarRivales(); setInterval(cargarRivales, 180000); }
 if (SLOT_LIVE){ cargarSlots(); setInterval(cargarSlots, 60000); }
+if (CLICK_CSV) cargarClics();
 else setInterval(() => { if (!enPanel && !formAbierto) render(); }, 60000);
 </script>
 </body></html>
